@@ -88,7 +88,9 @@ const tDoc=document.getElementById('tDoc'),tGraph=document.getElementById('tGrap
 tDoc.onclick=()=>{document.body.classList.remove('g');tDoc.classList.add('on');tGraph.classList.remove('on')};
 tGraph.onclick=()=>{document.body.classList.add('g');tGraph.classList.add('on');tDoc.classList.remove('on');graph()};
 let built=false;
-const clusterOf=f=>{const p=f.split('/');p.pop();return p.length?p.join('/'):'.'};
+const mdDirs=new Set(files.map(f=>{const p=f.split('/');p.pop();return p.join('/')}).filter(Boolean));
+// a subfolder joins its parent's cluster when the parent has Markdown of its own (ornament8/reviews/ -> ornament8)
+const clusterOf=f=>{const p=f.split('/');p.pop();while(p.length>1&&mdDirs.has(p.slice(0,-1).join('/')))p.pop();return p.length?p.join('/'):'.'};
 const clusterName=c=>c==='.'?L.root:c.split('/').pop();
 const labelOf=f=>{const parts=f.split('/');const n=parts.pop().replace(/\.md$/i,'');return /^readme$/i.test(n)?(parts.length?parts[parts.length-1]:'README'):n};
 function graph(){if(built)return;built=true;

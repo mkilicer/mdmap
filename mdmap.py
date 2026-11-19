@@ -139,6 +139,11 @@ def mentions(files, strong):
         for name, tgts in names.items():  # a folder or file name written as a plain word
             if re.search(r"(?<![\w/.-])" + re.escape(name) + r"(?![\w-])", low):
                 got |= tgts
+        parent = rel.rsplit("/", 1)[0].rsplit("/", 1)[0] if rel.count("/") >= 2 else None
+        own_parent = [f for f in files if parent and f.rsplit("/", 1)[0] == parent]
+        siblings = sum(1 for f in files if f.rsplit("/", 1)[0] == rel.rsplit("/", 1)[0])
+        if 0 < len(own_parent) <= 3 and siblings <= 12:  # reviews/x.md belongs to the Markdown of the folder above (its listing.md)
+            got |= set(own_parent)
         stem = Path(rel).stem.lower()  # "ornament1_final_codex.md" belongs to the "ornament1" folder
         for name, tgts in names.items():
             if stem.startswith(name) and stem[len(name):len(name) + 1] in ("_", "-"):
