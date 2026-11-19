@@ -139,16 +139,26 @@ def mentions(files, strong):
         for name, tgts in names.items():  # a folder or file name written as a plain word
             if re.search(r"(?<![\w/.-])" + re.escape(name) + r"(?![\w-])", low):
                 got |= tgts
-        parent = rel.rsplit("/", 1)[0].rsplit("/", 1)[0] if rel.count("/") >= 2 else None
-        own_parent = [f for f in files if parent and f.rsplit("/", 1)[0] == parent]
-        siblings = sum(1 for f in files if f.rsplit("/", 1)[0] == rel.rsplit("/", 1)[0])
-        if 0 < len(own_parent) <= 3 and siblings <= 12:  # reviews/x.md belongs to the Markdown of the folder above (its listing.md)
-            got |= set(own_parent)
+        # tree: the Markdown of a folder points down to the files of its small subfolders
+        # (product/listing.md -> product/reviews/answer.md), when the folder itself has only 1-3 .md files
+        folder = rel.rsplit("/", 1)[0] if "/" in rel else ""
+        own = [f for f in files if (f.rsplit("/", 1)[0] if "/" in f else "") == folder]
+        if folder and len(own) <= 3:
+            subs = {}
+            for f in files:
+                d = f.rsplit("/", 1)[0] if "/" in f else ""
+                if d.startswith(folder + "/") and d.count("/") == folder.count("/") + 1:
+                    subs.setdefault(d, []).append(f)
+            for kids in subs.values():
+                if len(kids) <= 12:
+                    got |= set(kids)
         stem = Path(rel).stem.lower()  # "ornament1_final_codex.md" belongs to the "ornament1" folder
         for name, tgts in names.items():
             if stem.startswith(name) and stem[len(name):len(name) + 1] in ("_", "-"):
                 got |= tgts
-        out[rel] = sorted(t for t in got if t != rel and t not in strong[rel])
+        # no arrows back up the tree: a file never points to the Markdown of a folder that contains it
+        up = {f for f in got if "/" in f and rel.startswith(f.rsplit("/", 1)[0] + "/") and rel.count("/") > f.count("/")}
+        out[rel] = sorted(t for t in got - up if t != rel and t not in strong[rel])
     return out
 
 
