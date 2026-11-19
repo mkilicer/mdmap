@@ -8,8 +8,10 @@ Usage (in a project folder):
 
 Left: files grouped by folder. Middle: the selected file, rendered.
 Right: links from and to this file. "Map": which file links to which.
-A link is a relative Markdown link ([x](docs/a.md)), a [[wiki]] link, a link to a folder
-(-> its README) or a path in backticks (`docs/a.md`, shown as a dashed "mention").
+A link is a relative Markdown link ([x](docs/a.md)), a [[wiki]] link or a link to a folder (-> its README).
+Dashed "mentions": a path in backticks or in plain text (`docs/a.md`, docs/x/, `docs/x/config.json` -> the
+Markdown files of that folder; a folder without README -> its own .md files) and a distinctive folder or
+file name written as a plain word (contains a digit, _ or -, >= 5 chars: "ornament5", "report_2026-11-19").
 The output is added to .git/info/exclude so it never ends up in the repository.
 No dependencies beyond Python 3; the page loads marked and d3 from cdnjs.
 """
@@ -22,6 +24,9 @@ MD_LINK = re.compile(r"\]\(([^)\s#]+\.md)(#[^)]*)?\)")
 WIKI = re.compile(r"\[\[([^\]|#]+)")
 DIR_LINK = re.compile(r"\]\(([^)\s#:]+/)\)")            # [x](docs/)
 CODE_PATH = re.compile(r"`([^`\s]+?(?:\.md|/))`")          # `../data.md`, `docs/<name>/`
+CODE_FILE = re.compile(r"`([^`\s]+/[^`\s/]+\.[A-Za-z0-9]{1,5})`")  # `docs/x/config.json` -> the md files of docs/x
+BARE_PATH = re.compile(r"(?<![\w/:.`\[(])((?:\.\.?/)?[\w.-]+(?:/[\w.<>-]+)+/?)(?![\w`])")  # data/research/ in prose
+GENERIC = {"readme", "index", "listing", "claude", "agents", "skill", "notes", "todo", "changelog", "license"}
 
 
 def collect(root: Path):
@@ -64,6 +69,9 @@ def resolve(files, root_dirs, base, path):
             subs = {f for f in files if re.fullmatch(re.escape(cand) + r"/[^/]+/readme\.md", f, re.I)}
             if subs:
                 return subs
+            own = {f for f in files if f.rsplit("/", 1)[0] == cand} if cand != "." else set()
+            if 0 < len(own) <= 12:  # a small folder without README: its own Markdown files
+                return own
     return found
 
 
@@ -96,6 +104,18 @@ def mentions(files, strong):
         parts = f.split("/")[:-1]
         for i in range(1, len(parts) + 1):
             dirs.add("/".join(parts[:i]))
+    # distinctive names -> Markdown files: folder names (-> the md files inside) and file stems
+    # (only names with a digit, _ or - and >= 5 chars, so ordinary words never match)
+    names = {}
+    for d in dirs:
+        nm = d.rsplit("/", 1)[-1].lower()
+        if len(nm) >= 5 and re.search(r"[\d_-]", nm) and nm not in GENERIC:
+            names.setdefault(nm, set()).update(resolve(files, dirs, Path("."), d + "/"))
+    for f in files:
+        st = Path(f).stem.lower()
+        if len(st) >= 5 and re.search(r"[\d_-]", st) and st not in GENERIC:
+            names.setdefault(st, set()).add(f)
+    names = {k: v for k, v in names.items() if v}
     out = {}
     for rel, text in files.items():
         base = Path(rel).parent
@@ -103,6 +123,26 @@ def mentions(files, strong):
         for rx in (DIR_LINK, CODE_PATH):
             for m in rx.finditer(text):
                 got |= resolve(files, dirs, base, m.group(1))
+        for rx in (CODE_FILE, BARE_PATH):  # a file or folder path anywhere -> the Markdown in that folder
+            for m in rx.finditer(text):
+                t = m.group(1)
+                if "://" in t or t.startswith("www.") or not re.search(r"[A-Za-z]", t.rstrip("/").rsplit("/", 1)[-1]):
+                    continue
+                if t.endswith(".md"):
+                    got |= resolve(files, dirs, base, t)
+                elif t.endswith("/"):
+                    got |= resolve(files, dirs, base, t)
+                else:
+                    parent = t.rsplit("/", 1)[0] + "/"
+                    got |= resolve(files, dirs, base, t + "/") or resolve(files, dirs, base, parent)
+        low = text.lower()
+        for name, tgts in names.items():  # a folder or file name written as a plain word
+            if re.search(r"(?<![\w/.-])" + re.escape(name) + r"(?![\w-])", low):
+                got |= tgts
+        stem = Path(rel).stem.lower()  # "ornament1_final_codex.md" belongs to the "ornament1" folder
+        for name, tgts in names.items():
+            if stem.startswith(name) and stem[len(name):len(name) + 1] in ("_", "-"):
+                got |= tgts
         out[rel] = sorted(t for t in got if t != rel and t not in strong[rel])
     return out
 
